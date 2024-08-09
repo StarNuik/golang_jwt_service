@@ -20,7 +20,7 @@ func TestAccessRoundtrip(t *testing.T) {
 	tokens := auth.NewTokenAuthority(key, "")
 	tokens.AddAudience("aud-1", "aud-2")
 
-	packed, err := tokens.NewAccessToken(wantId)
+	packed, err := tokens.NewAccess(wantId)
 	require.Nil(err)
 
 	haveId, err := tokens.ParseAccess(packed, "aud-1")
@@ -35,6 +35,24 @@ func TestAccessRoundtrip(t *testing.T) {
 	require.NotNil(err)
 }
 
+func TestRefreshRoundtrip(t *testing.T) {
+	require := require.New(t)
+
+	key := "salty-bacon"
+	// wantId, _ := uuid.FromString("12345678-1234-1234-1234-123456789abc")
+
+	tokens := auth.NewTokenAuthority("", key)
+
+	packed, err := tokens.NewRefresh()
+	require.Nil(err)
+
+	hash, err := tokens.HashRefresh(packed)
+	require.Nil(err)
+
+	err = tokens.CompareRefreshHashes(packed, hash)
+	require.Nil(err)
+}
+
 // im overdoing it, the jwt lib should have already tested for this
 func TestParseAccessClaims(t *testing.T) {
 	assert := assert.New(t)
@@ -45,7 +63,7 @@ func TestParseAccessClaims(t *testing.T) {
 	tokens := auth.NewTokenAuthority(key, "")
 	tokens.AddAudience("aud-1", "aud-2")
 
-	packed, _ := tokens.NewAccessToken(wantId)
+	packed, _ := tokens.NewAccess(wantId)
 
 	original, _ := jwt.ParseWithClaims(packed, jwt.RegisteredClaims{}, func(*jwt.Token) (interface{}, error) { return key, nil })
 
