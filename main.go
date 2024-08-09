@@ -4,36 +4,43 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/gofrs/uuid/v5"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/api"
+	"github.com/starnuik/golang_jwt_service/pkg/auth"
 )
 
 var (
-	jwtKey      = os.Getenv("JWT_KEY")
-	jwtDuration = 60 * time.Second
+	jwtKey = os.Getenv("JWT_KEY")
+	tokens = auth.NewTokenAuthority(jwtKey, jwtKey)
 )
 
-func jwtKeyFunc(*jwt.Token) (interface{}, error) {
-	return []byte(jwtKey), nil
-}
-
 func newToken(ctx *gin.Context) {
+	var req api.NewTokenRequest
 
-	claims := jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(jwtDuration)),
+	err := ctx.BindJSON(&req)
+	if err != nil {
+		ctx.Status(http.StatusBadRequest)
+		return
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
-	signed, _ := token.SignedString([]byte(jwtKey))
+	userId, err := uuid.FromString(req.UserId)
+	if err != nil {
+		ctx.Status(http.StatusBadRequest)
+		return
+	}
 
-	res := api.TokenResponse{}
-	res.AccessToken = signed
-	res.TokenType = "example"
-	res.ExpiresIn = int(jwtDuration.Seconds())
+	token, err := tokens.AccessToken(userId)
+	if err != nil {
+		ctx.Status(http.StatusInternalServerError)
+		return
+	}
+
+	res := api.NewTokenResponse{}
+	res.AccessToken = token
+	res.ExpiresIn = int(tokens.AccessExpiresIn().Seconds())
 	res.RefreshToken = "nil"
 
 	// todo: "MUST include the HTTP "Cache-Control" response header field [RFC2616] with a value of "no-store" in any response containing tokens, credentials, or other sensitive information..."
@@ -41,12 +48,14 @@ func newToken(ctx *gin.Context) {
 	ctx.IndentedJSON(http.StatusOK, res)
 }
 
+// ? https://stackoverflow.com/a/67386228
+// ? https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation
 func refreshToken(ctx *gin.Context) {
 	ctx.Status(http.StatusNotFound)
 }
 
 func verifyToken(ctx *gin.Context) {
-	var req api.TestTokenRequest
+	var req api.VerifyTokenRequest
 
 	err := ctx.BindJSON(&req)
 	if err != nil {
@@ -56,23 +65,27 @@ func verifyToken(ctx *gin.Context) {
 
 	fmt.Println(req)
 
-	signed := req.AccessToken
-	token, err := jwt.Parse(signed, jwtKeyFunc, jwt.WithValidMethods([]string{"HS512"}))
-
-	if err == nil && token.Valid {
-		ctx.Status(http.StatusOK)
+	userId, err := tokens.ParseAccess(req.AccessToken, "jwt_service/api/verify_token")
+	if err != nil {
+		ctx.Status(http.StatusUnauthorized)
 		return
 	}
 
-	ctx.Status(http.StatusUnauthorized)
+	res := api.VerifyTokenResponse{
+		UserId: userId.String(),
+	}
+
+	ctx.JSON(http.StatusOK, res)
 }
 
 func main() {
 	fmt.Println("Hello, Go!")
 
+	tokens.AddAudience("jwt_service/api/verify_token")
+
 	r := gin.Default()
 
-	r.GET("/api/auth/new", newToken)
+	r.POST("/api/auth/new", newToken)
 	r.POST("/api/auth/refresh", refreshToken)
 	r.POST("/api/verify_token", verifyToken)
 
