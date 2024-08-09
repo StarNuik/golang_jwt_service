@@ -40,7 +40,7 @@ func now() time.Time {
 	return time.Now().UTC()
 }
 
-func (ta *tokenAuthority) AccessToken(userId uuid.UUID) (string, error) {
+func (ta *tokenAuthority) NewAccessToken(userId uuid.UUID) (string, error) {
 	claims := jwt.RegisteredClaims{
 		Issuer:    jwtIssuer,
 		Subject:   userId.String(),

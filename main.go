@@ -32,7 +32,7 @@ func newToken(ctx *gin.Context) {
 		return
 	}
 
-	token, err := tokens.AccessToken(userId)
+	token, err := tokens.NewAccessToken(userId)
 	if err != nil {
 		ctx.Status(http.StatusInternalServerError)
 		return
