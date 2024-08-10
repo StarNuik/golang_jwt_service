@@ -1,5 +1,5 @@
-insert into users
-    (user_name, user_email)
+insert into Users
+    (Name, Email)
 values
     ('bob', 'work@bob.org'),
     ('alice', 'mail@alice.org'),

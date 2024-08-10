@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,95 +19,88 @@ import (
 var (
 	jwtKey  = os.Getenv("JWT_KEY")
 	dbUrl   = os.Getenv("PG_URL")
-	tokens  = auth.NewTokenAuthority(jwtKey, jwtKey)
-	rtModel *model.RefreshTokens
+	tokAuth = auth.NewTokenAuthority(jwtKey, jwtKey)
+	tokens  *model.RefreshTokens
+	users   *model.Users
 )
 
-func newToken(ctx *gin.Context) {
+func errStatus(ctx *gin.Context, status int, err error) {
+	log.Println(err)
+	ctx.Status(status)
+}
+
+func login(ctx *gin.Context) {
 	var req schema.NewTokenRequest
 
 	err := ctx.BindJSON(&req)
 	if err != nil {
-		ctx.Status(http.StatusBadRequest)
+		errStatus(ctx, http.StatusBadRequest, err)
 		return
 	}
-
-	//todo: test that such a user exists
 
 	userId, err := uuid.FromString(req.UserId)
 	if err != nil {
-		ctx.Status(http.StatusBadRequest)
+		errStatus(ctx, http.StatusBadRequest, err)
 		return
 	}
 
-	access, err := tokens.NewAccess(userId)
+	_, err = users.GetUser(context.TODO(), userId)
 	if err != nil {
-		ctx.Status(http.StatusInternalServerError)
+		errStatus(ctx, http.StatusUnauthorized, err)
 		return
 	}
 
-	refresh, err := tokens.NewRefresh()
+	returnNewPair(ctx, userId)
+}
+
+func returnNewPair(ctx *gin.Context, user uuid.UUID) {
+	pair, err := tokAuth.NewPair(user)
 	if err != nil {
-		ctx.Status(http.StatusInternalServerError)
+		errStatus(ctx, http.StatusInternalServerError, err)
 		return
 	}
 
-	refreshHash, err := tokens.HashRefresh(refresh)
+	err = tokens.InsertToken(context.TODO(), pair.RefreshRow)
 	if err != nil {
-		ctx.Status(http.StatusInternalServerError)
+		errStatus(ctx, http.StatusInternalServerError, err)
 		return
 	}
-
-	rt := model.RefreshToken{
-		Hash:      refreshHash,
-		UserId:    userId,
-		ExpiresAt: tokens.RefreshExpiresAt(),
-	}
-	err = rtModel.InsertToken(context.TODO(), rt)
-	if err != nil {
-		ctx.Status(http.StatusInternalServerError)
-		return
-	}
-
-	res := schema.TokenPairResponse{}
-	res.AccessToken = access
-	res.ExpiresIn = int(tokens.AccessExpiresIn().Seconds())
-	res.RefreshToken = refresh
 
 	// todo: "MUST include the HTTP "Cache-Control" response header field [RFC2616] with a value of "no-store" in any response containing tokens, credentials, or other sensitive information..."
 	// todo: (MUST include) "the "Pragma" response header field [RFC2616] with a value of "no-cache"."
-	ctx.IndentedJSON(http.StatusOK, res)
+	ctx.IndentedJSON(http.StatusOK, pair.Response)
 }
 
 // ? https://stackoverflow.com/a/67386228
 // ? https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation
 func refreshToken(ctx *gin.Context) {
-	// var req schema.RefreshTokenRequest
+	var req schema.RefreshTokenRequest
 
-	// err := ctx.BindJSON(&req)
-	// if err != nil {
-	// 	ctx.Status(http.StatusBadRequest)
-	// 	return
-	// }
+	err := ctx.BindJSON(&req)
+	if err != nil {
+		errStatus(ctx, http.StatusBadRequest, err)
+		return
+	}
 
-	// hash, err := tokens.HashRefresh(req.RefreshToken)
+	tokenId, err := tokAuth.ParseRefresh(req.RefreshToken)
+	if err != nil {
+		errStatus(ctx, http.StatusBadRequest, err)
+		return
+	}
 
-	// token, err := rtModel.RetrieveToken(context.TODO(), hash)
-	// if err != nil {
-	// 	// todo: better error response, ref [RFC6750]
-	// 	ctx.Status(http.StatusBadRequest)
-	// 	return
-	// }
+	token, err := tokens.RetrieveToken(context.TODO(), tokenId)
+	if err != nil {
+		errStatus(ctx, http.StatusInternalServerError, err)
+		return
+	}
 
-	// if token.ExpiresAt.Before(time.Now().UTC()) {
-	// 	// todo: better error response, ref [RFC6750]
-	// 	ctx.Status(http.StatusUnauthorized)
-	// 	return
-	// }
+	err = tokAuth.CompareRefresh(req.RefreshToken, token)
+	if err != nil {
+		errStatus(ctx, http.StatusUnauthorized, err)
+		return
+	}
 
-	// err = rtModel.InvalidateToken(context.TODO(), hash)
-
-	ctx.Status(http.StatusNotFound)
+	returnNewPair(ctx, token.UserId)
 }
 
 func verifyToken(ctx *gin.Context) {
@@ -116,23 +108,17 @@ func verifyToken(ctx *gin.Context) {
 
 	err := ctx.BindJSON(&req)
 	if err != nil {
-		ctx.Status(http.StatusBadRequest)
+		errStatus(ctx, http.StatusBadRequest, err)
 		return
 	}
 
-	fmt.Println(req)
-
-	userId, err := tokens.ParseAccess(req.AccessToken, "jwt_service/api/verify_token")
+	_, err = tokAuth.ParseAccess(req.AccessToken, "jwt_service/api/verify_token")
 	if err != nil {
-		ctx.Status(http.StatusUnauthorized)
+		errStatus(ctx, http.StatusUnauthorized, err)
 		return
 	}
 
-	res := schema.VerifyTokenResponse{
-		UserId: userId.String(),
-	}
-
-	ctx.JSON(http.StatusOK, res)
+	ctx.Status(http.StatusOK)
 }
 
 func main() {
@@ -146,13 +132,14 @@ func main() {
 		log.Panicf("main: %v\n", err)
 	}
 
-	rtModel = model.NewRefreshTokens(pool)
+	tokens = model.NewRefreshTokens(pool)
+	users = model.NewUsers(pool)
 
-	tokens.AddAudience("jwt_service/api/verify_token")
+	tokAuth.AddAudience("jwt_service/api/verify_token")
 
 	r := gin.Default()
 
-	r.POST("/api/auth/new", newToken)
+	r.POST("/api/auth/login", login)
 	r.POST("/api/auth/refresh", refreshToken)
 	r.POST("/api/verify_token", verifyToken)
 

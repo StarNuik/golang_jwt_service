@@ -14,10 +14,11 @@ type RefreshTokens struct {
 }
 
 type RefreshToken struct {
-	Hash      string
-	UserId    uuid.UUID
-	ExpiresAt time.Time
-	IsValid   bool
+	Id          uuid.UUID
+	UserId      uuid.UUID
+	Hash        string
+	ExpiresAt   time.Time
+	Deactivated bool
 }
 
 func NewRefreshTokens(db *pgxpool.Pool) *RefreshTokens {
@@ -27,19 +28,12 @@ func NewRefreshTokens(db *pgxpool.Pool) *RefreshTokens {
 }
 
 func (m *RefreshTokens) InsertToken(ctx context.Context, token RefreshToken) error {
-	if len(token.Hash) != 60 {
-		return fmt.Errorf("refresh_tokens: token hash length must be 60 bytes")
-	}
-	if token.ExpiresAt.Before(time.Now().UTC()) {
-		return fmt.Errorf("refresh_tokens: the token has already expired")
-	}
-
 	tag, err := m.db.Exec(ctx, `
-		INSERT INTO refresh_tokens
-			(rt_hash, rt_user_id, rt_expires_at, rt_valid)
+		INSERT INTO RefreshTokens
+			(Id, UserId, Hash, ExpiresAt, Deactivated)
 		VALUES
-			($1, $2, $3, true)`,
-		token.Hash, token.UserId, token.ExpiresAt)
+			($1, $2, $3, $4, $5)`,
+		token.Id, token.UserId, token.Hash, token.ExpiresAt, token.Deactivated)
 
 	if err != nil {
 		return err
@@ -54,22 +48,18 @@ func (m *RefreshTokens) InsertToken(ctx context.Context, token RefreshToken) err
 	return nil
 }
 
-func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenHash string) (*RefreshToken, error) {
-	if len(tokenHash) != 60 {
-		return nil, fmt.Errorf("refresh_tokens: token hash length must be 60 bytes")
-	}
-
+func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenId uuid.UUID) (*RefreshToken, error) {
 	out := RefreshToken{
-		Hash: tokenHash,
+		Id: tokenId,
 	}
 
 	row := m.db.QueryRow(ctx, `
-		SELECT rt_user_id, rt_expires_at, rt_valid
-		FROM refresh_tokens
-		WHERE rt_hash = $1`,
-		tokenHash)
+		SELECT UserId, Hash, ExpiresAt, Deactivated
+		FROM RefreshTokens
+		WHERE Id = $1`,
+		tokenId)
 
-	err := row.Scan(&out.UserId, &out.ExpiresAt, &out.IsValid)
+	err := row.Scan(&out.UserId, &out.Hash, &out.ExpiresAt, &out.Deactivated)
 	if err != nil {
 		return nil, err
 	}
@@ -77,16 +67,12 @@ func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenHash string) (*R
 	return &out, nil
 }
 
-func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenHash string) error {
-	if len(tokenHash) != 60 {
-		return fmt.Errorf("refresh_tokens: token hash length must be 60 bytes")
-	}
-
+func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenId uuid.UUID) error {
 	tag, err := m.db.Exec(ctx, `
-		UPDATE refresh_tokens
-		SET rt_valid = false
-		WHERE rt_hash = $1`,
-		tokenHash)
+		UPDATE RefreshTokens
+		SET Deactivated = false
+		WHERE Id = $1`,
+		tokenId)
 	if err != nil {
 		return err
 	}

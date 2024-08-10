@@ -1,6 +1,7 @@
-create table refresh_tokens (
-    rt_hash char(60) primary key,
-    rt_user_id uuid not null,
-    rt_expires_at timestamp not null,
-    rt_valid boolean not null default false
+create table RefreshTokens (
+    Id          uuid      primary key,
+    UserId      uuid      not null,
+    Hash        text      not null,
+    ExpiresAt   timestamp not null,
+    Deactivated boolean   not null default false
 );
