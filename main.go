@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid/v5"
@@ -27,6 +28,25 @@ var (
 func errStatus(ctx *gin.Context, status int, err error) {
 	log.Println(err)
 	ctx.Status(status)
+}
+
+// https://stackoverflow.com/a/55738279
+// this is as reliable as it gets
+func readUserAddress(r *http.Request) (netip.Addr, error) {
+	addr := r.Header.Get("X-Real-Ip")
+	if addr == "" {
+		addr = r.Header.Get("X-Forwarded-For")
+	}
+	if addr == "" {
+		addr = r.RemoteAddr
+	}
+
+	portIdx := strings.Index(addr, ":")
+	if portIdx >= 0 {
+		addr = addr[:portIdx]
+	}
+
+	return netip.ParseAddr(addr)
 }
 
 func login(ctx *gin.Context) {
@@ -50,7 +70,7 @@ func login(ctx *gin.Context) {
 		return
 	}
 
-	err = tokens.InvalidateOrphanTokens(context.TODO(), userId)
+	err = tokens.InvalidateAll(context.TODO(), userId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
@@ -60,13 +80,19 @@ func login(ctx *gin.Context) {
 }
 
 func returnNewPair(ctx *gin.Context, user uuid.UUID) {
-	pair, err := tokAuth.NewPair(user, netip.Addr{})
+	addr, err := readUserAddress(ctx.Request)
+	if err != nil {
+		log.Println("main: could not parse ip:", err)
+		addr = netip.AddrFrom4([4]byte{0, 0, 0, 0})
+	}
+
+	pair, err := tokAuth.NewPair(user, addr)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
 	}
 
-	err = tokens.InsertToken(context.TODO(), pair.RefreshRow)
+	err = tokens.Insert(context.TODO(), pair.RefreshRow)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
@@ -94,19 +120,27 @@ func refreshToken(ctx *gin.Context) {
 		return
 	}
 
-	token, err := tokens.RetrieveToken(context.TODO(), payload.TokenId)
+	//todo: ip verification
+	addr, err := readUserAddress(ctx.Request)
+	if err != nil {
+		addr = netip.AddrFrom4([4]byte{0, 0, 0, 0})
+	}
+	fmt.Println("want ip:", payload.UserAddress, ", have ip:", addr)
+
+	token, err := tokens.Retrieve(context.TODO(), payload.TokenId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
 	}
 
+	// todo: invalidate all tokens on a stolen refresh token
 	err = tokAuth.CompareRefresh(req.RefreshToken, token)
 	if err != nil {
 		errStatus(ctx, http.StatusUnauthorized, err)
 		return
 	}
 
-	err = tokens.InvalidateToken(context.TODO(), payload.TokenId)
+	err = tokens.Invalidate(context.TODO(), payload.TokenId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return

@@ -54,10 +54,10 @@ func TestRefreshTokenRoundtrip(t *testing.T) {
 	defer close()
 	want := token()
 
-	err := tokens.InsertToken(context.Background(), want)
+	err := tokens.Insert(context.Background(), want)
 	require.Nil(err)
 
-	have, err := tokens.RetrieveToken(context.Background(), want.Id)
+	have, err := tokens.Retrieve(context.Background(), want.Id)
 	require.Nil(err)
 	require.Equal(want, *have)
 }
@@ -70,13 +70,13 @@ func TestInvalidateToken(t *testing.T) {
 	defer close()
 	want := token()
 
-	err := tokens.InsertToken(context.Background(), want)
+	err := tokens.Insert(context.Background(), want)
 	require.Nil(err)
 
-	err = tokens.InvalidateToken(context.Background(), want.Id)
+	err = tokens.Invalidate(context.Background(), want.Id)
 	require.Nil(err)
 
-	have, err := tokens.RetrieveToken(context.Background(), want.Id)
+	have, err := tokens.Retrieve(context.Background(), want.Id)
 	require.Nil(err)
 	require.Equal(false, have.Active)
 }
@@ -92,14 +92,14 @@ func TestInvalidateOrphans(t *testing.T) {
 
 	for _, tok := range wants {
 		tok.UserId = userId
-		tokens.InsertToken(context.Background(), tok)
+		tokens.Insert(context.Background(), tok)
 	}
 
-	err := tokens.InvalidateOrphanTokens(context.Background(), userId)
+	err := tokens.InvalidateAll(context.Background(), userId)
 	require.Nil(err)
 
 	for _, tok := range wants {
-		have, _ := tokens.RetrieveToken(context.Background(), tok.Id)
+		have, _ := tokens.Retrieve(context.Background(), tok.Id)
 		require.Equal(false, have.Active)
 	}
 }

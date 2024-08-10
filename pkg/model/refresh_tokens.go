@@ -27,7 +27,7 @@ func NewRefreshTokens(db *pgxpool.Pool) *RefreshTokens {
 	}
 }
 
-func (m *RefreshTokens) InsertToken(ctx context.Context, token RefreshToken) error {
+func (m *RefreshTokens) Insert(ctx context.Context, token RefreshToken) error {
 	tag, err := m.db.Exec(ctx, `
 		INSERT INTO RefreshTokens
 			(Id, UserId, Hash, ExpiresAt, Active)
@@ -48,7 +48,7 @@ func (m *RefreshTokens) InsertToken(ctx context.Context, token RefreshToken) err
 	return nil
 }
 
-func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenId uuid.UUID) (*RefreshToken, error) {
+func (m *RefreshTokens) Retrieve(ctx context.Context, tokenId uuid.UUID) (*RefreshToken, error) {
 	out := RefreshToken{
 		Id: tokenId,
 	}
@@ -67,7 +67,7 @@ func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenId uuid.UUID) (*
 	return &out, nil
 }
 
-func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenId uuid.UUID) error {
+func (m *RefreshTokens) Invalidate(ctx context.Context, tokenId uuid.UUID) error {
 	tag, err := m.db.Exec(ctx, `
 		UPDATE RefreshTokens
 		SET Active = false
@@ -85,7 +85,7 @@ func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenId uuid.UUID) 
 	return nil
 }
 
-func (m *RefreshTokens) InvalidateOrphanTokens(ctx context.Context, userId uuid.UUID) error {
+func (m *RefreshTokens) InvalidateAll(ctx context.Context, userId uuid.UUID) error {
 	tag, err := m.db.Exec(ctx, `
 		UPDATE RefreshTokens
 		SET Active = false
