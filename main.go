@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,9 +18,7 @@ import (
 )
 
 var (
-	jwtKey  = os.Getenv("JWT_KEY")
-	dbUrl   = os.Getenv("PG_URL")
-	tokAuth = auth.NewTokenAuthority(jwtKey, jwtKey)
+	tokAuth *auth.TokenAuthority
 	tokens  *model.RefreshTokens
 	users   *model.Users
 )
@@ -51,6 +50,10 @@ func login(ctx *gin.Context) {
 	}
 
 	err = tokens.InvalidateOrphanTokens(context.TODO(), userId)
+	if err != nil {
+		errStatus(ctx, http.StatusInternalServerError, err)
+		return
+	}
 
 	returnNewPair(ctx, userId)
 }
@@ -129,7 +132,34 @@ func verifyToken(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
+// https://stackoverflow.com/a/55738279
+// this is as reliable as it gets
+func ReadUserIP(r *http.Request) string {
+	IPAddress := r.Header.Get("X-Real-Ip")
+	if IPAddress == "" {
+		IPAddress = r.Header.Get("X-Forwarded-For")
+	}
+	if IPAddress == "" {
+		IPAddress = r.RemoteAddr
+	}
+	return IPAddress
+}
+
+func printIp(ctx *gin.Context) {
+	fmt.Println(ctx.Request.Header.Get("X-Real-Ip"))
+	fmt.Println(ctx.Request.Header.Get("X-Forwarded-For"))
+	fmt.Println(ctx.Request.RemoteAddr)
+	ctx.Status(http.StatusOK)
+}
+
 func main() {
+	accessKey := os.Getenv("ACCESS_TOKEN_KEY")
+	refreshKey := os.Getenv("REFRESH_TOKEN_KEY")
+	dbUrl := os.Getenv("PG_URL")
+
+	tokAuth = auth.NewTokenAuthority(accessKey, refreshKey,
+		auth.WithAudience("jwt_service/api/verify_token"))
+
 	pool, err := pgxpool.New(context.Background(), dbUrl)
 	if err != nil {
 		log.Panicf("main: %v\n", err)
@@ -143,13 +173,12 @@ func main() {
 	tokens = model.NewRefreshTokens(pool)
 	users = model.NewUsers(pool)
 
-	tokAuth.AddAudience("jwt_service/api/verify_token")
-
 	r := gin.Default()
 
 	r.POST("/api/auth/login", login)
 	r.POST("/api/auth/refresh", refreshToken)
 	r.POST("/api/verify_token", verifyToken)
+	r.GET("/api/ip", printIp)
 
 	r.Run()
 }

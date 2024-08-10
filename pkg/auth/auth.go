@@ -18,25 +18,46 @@ const (
 	refreshAudience = "jwt_service/api/auth/refresh"
 )
 
-type tokenAuthority struct {
+type TokenAuthority struct {
 	accessKey, refreshKey           []byte
 	accessDuration, refreshDuration time.Duration
 	audience                        []string
 }
 
+type BuilderOption func(ta *TokenAuthority)
+
+func WithAccessTokenDuration(in time.Duration) BuilderOption {
+	return func(ta *TokenAuthority) {
+		ta.accessDuration = in
+	}
+}
+
+func WithRefreshTokenDuration(in time.Duration) BuilderOption {
+	return func(ta *TokenAuthority) {
+		ta.refreshDuration = in
+	}
+}
+
+func WithAudience(audience ...string) BuilderOption {
+	return func(ta *TokenAuthority) {
+		ta.audience = audience
+	}
+}
+
 // NewTokenAuthority returns a struct responsible for generating and validating both access and refresh tokens.
 // All operations are concurrency safe.
-func NewTokenAuthority(accessKey string, refreshKey string) *tokenAuthority {
-	return &tokenAuthority{
+func NewTokenAuthority(accessKey string, refreshKey string, options ...BuilderOption) *TokenAuthority {
+	out := TokenAuthority{
 		accessKey:       []byte(accessKey),
 		refreshKey:      []byte(refreshKey),
 		accessDuration:  5 * time.Second,
 		refreshDuration: 30 * time.Second,
+		audience:        nil,
 	}
-}
-
-func (ta *tokenAuthority) AddAudience(audience ...string) {
-	ta.audience = append(ta.audience, audience...)
+	for _, opt := range options {
+		opt(&out)
+	}
+	return &out
 }
 
 // jwt.NewNumericDate should use UTC under the hood. This is added as an additional peace of mind.
@@ -56,7 +77,7 @@ type tokenClaims struct {
 	TokenId uuid.UUID `json:"tki,omitempty"`
 }
 
-func (ta *tokenAuthority) NewPair(userId uuid.UUID) (*TokenPair, error) {
+func (ta *TokenAuthority) NewPair(userId uuid.UUID) (*TokenPair, error) {
 	refreshId, err := uuid.NewV4()
 	if err != nil {
 		return nil, err
@@ -87,8 +108,8 @@ func (ta *tokenAuthority) NewPair(userId uuid.UUID) (*TokenPair, error) {
 	}, nil
 }
 
-func (ta *tokenAuthority) newRefreshRow(refreshId uuid.UUID, userId uuid.UUID, refresh string) (*model.RefreshToken, error) {
-	hash, err := ta.hashRefresh(refresh)
+func (ta *TokenAuthority) newRefreshRow(refreshId uuid.UUID, userId uuid.UUID, refresh string) (*model.RefreshToken, error) {
+	hash, err := hashRefresh(refresh)
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +123,8 @@ func (ta *tokenAuthority) newRefreshRow(refreshId uuid.UUID, userId uuid.UUID, r
 	}, nil
 }
 
-func (ta *tokenAuthority) newAccess(userId uuid.UUID) (string, error) {
-	return ta.packClaims(ta.accessKey, tokenClaims{
+func (ta *TokenAuthority) newAccess(userId uuid.UUID) (string, error) {
+	return packClaims(ta.accessKey, tokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    jwtIssuer,
 			Audience:  ta.audience,
@@ -114,8 +135,8 @@ func (ta *tokenAuthority) newAccess(userId uuid.UUID) (string, error) {
 	})
 }
 
-func (ta *tokenAuthority) newRefresh(refreshId uuid.UUID, userId uuid.UUID) (string, error) {
-	return ta.packClaims(ta.refreshKey, tokenClaims{
+func (ta *TokenAuthority) newRefresh(refreshId uuid.UUID, userId uuid.UUID) (string, error) {
+	return packClaims(ta.refreshKey, tokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    jwtIssuer,
 			Audience:  []string{refreshAudience},
@@ -127,13 +148,13 @@ func (ta *tokenAuthority) newRefresh(refreshId uuid.UUID, userId uuid.UUID) (str
 	})
 }
 
-func (ta *tokenAuthority) packClaims(key []byte, claims jwt.Claims) (string, error) {
+func packClaims(key []byte, claims jwt.Claims) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 	packed, err := token.SignedString(key)
 	return packed, err
 }
 
-func (ta *tokenAuthority) prehashRefresh(refresh string) []byte {
+func prehashRefresh(refresh string) []byte {
 	// todo: this is probably a security vulnerability
 	compact := sha256.Sum256([]byte(refresh))
 	// bcrypt doesn't handle \0-s or other special ASCII symbols very well
@@ -141,8 +162,8 @@ func (ta *tokenAuthority) prehashRefresh(refresh string) []byte {
 	return []byte(based)
 }
 
-func (ta *tokenAuthority) hashRefresh(refresh string) (string, error) {
-	prehash := ta.prehashRefresh(refresh)
+func hashRefresh(refresh string) (string, error) {
+	prehash := prehashRefresh(refresh)
 	hash, err := bcrypt.GenerateFromPassword(prehash, bcrypt.DefaultCost)
 	if err != nil {
 		return "", err
@@ -151,7 +172,7 @@ func (ta *tokenAuthority) hashRefresh(refresh string) (string, error) {
 	return string(hash), nil
 }
 
-func (ta *tokenAuthority) ParseAccess(token string, audience string) (uuid.UUID, error) {
+func (ta *TokenAuthority) ParseAccess(token string, audience string) (uuid.UUID, error) {
 	claims, err := unpackClaims(ta.accessKey, token, audience)
 	if err != nil {
 		return uuid.Nil, err
@@ -161,7 +182,7 @@ func (ta *tokenAuthority) ParseAccess(token string, audience string) (uuid.UUID,
 	return userId, err
 }
 
-func (ta *tokenAuthority) ParseRefresh(token string) (uuid.UUID, error) {
+func (ta *TokenAuthority) ParseRefresh(token string) (uuid.UUID, error) {
 	claims, err := unpackClaims(ta.refreshKey, token, refreshAudience)
 	if err != nil {
 		return uuid.Nil, err
@@ -184,14 +205,14 @@ func unpackClaims(key []byte, packed string, audience string) (*tokenClaims, err
 	return &out, nil
 }
 
-func (ta *tokenAuthority) CompareRefresh(client string, server *model.RefreshToken) error {
+func (ta *TokenAuthority) CompareRefresh(client string, server *model.RefreshToken) error {
 	if !server.Active {
 		return fmt.Errorf("auth: the token is out of rotation")
 	}
 	if server.ExpiresAt.Before(now()) {
 		return fmt.Errorf("auth: the token has expired")
 	}
-	prehash := ta.prehashRefresh(client)
+	prehash := prehashRefresh(client)
 	err := bcrypt.CompareHashAndPassword([]byte(server.Hash), prehash)
 	return err
 }

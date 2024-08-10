@@ -15,8 +15,8 @@ func TestAccessRoundtrip(t *testing.T) {
 	key := "salty-bacon"
 	wantId, _ := uuid.FromString("12345678-1234-1234-1234-123456789abc")
 
-	tokens := auth.NewTokenAuthority(key, "")
-	tokens.AddAudience("aud-1", "aud-2")
+	tokens := auth.NewTokenAuthority(key, "",
+		auth.WithAudience("aud-1", "aud-2"))
 
 	pair, err := tokens.NewPair(wantId)
 	require.Nil(err)
@@ -39,7 +39,7 @@ func TestAccessRoundtrip(t *testing.T) {
 func TestRefreshRoundtrip(t *testing.T) {
 	require := require.New(t)
 
-	key := "salty-bacon"
+	key := "bacon-pancakes"
 	userId, _ := uuid.FromString("12345678-1234-1234-1234-123456789abc")
 
 	tokens := auth.NewTokenAuthority("", key)

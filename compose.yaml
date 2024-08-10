@@ -1,26 +1,40 @@
 version: "3"
 
+networks:
+  internal:
+
 services:
   postgres:
     image: postgres:latest
-    # todo: remove the host-network-ed port
+    # todo: remove the "host  network"-ed port
     ports:
       - 5432:5432
-    # networks:
-    # - internal
+    networks:
+    - internal
     # volumes:
     #   - vol-postgres:/var/lib/postgresql/data
     environment:
-      POSTGRES_USER: pg
-      POSTGRES_PASSWORD: insecure
-      POSTGRES_DB: dev
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DATABASE}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
       interval: 1s
       timeout: 5s
       retries: 60
-#   pgmigrate:
-#     image: 
+  pgmigrate:
+    image: ghcr.io/peterldowns/pgmigrate:latest
+    command: pgmigrate migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - internal
+    volumes:
+    - ./migrations:/migrations
+    environment:
+      PGM_MIGRATIONS: /migrations
+      PGM_DATABASE: ${PG_URL}
 
 #   service-jwt:
 #     image:
