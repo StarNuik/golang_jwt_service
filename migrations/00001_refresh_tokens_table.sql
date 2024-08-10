@@ -3,5 +3,5 @@ create table RefreshTokens (
     UserId      uuid      not null,
     Hash        text      not null,
     ExpiresAt   timestamp not null,
-    Deactivated boolean   not null default false
+    Active      boolean   not null default false
 );

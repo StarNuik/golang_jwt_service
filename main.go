@@ -50,6 +50,8 @@ func login(ctx *gin.Context) {
 		return
 	}
 
+	err = tokens.InvalidateOrphanTokens(context.TODO(), userId)
+
 	returnNewPair(ctx, userId)
 }
 
@@ -97,6 +99,12 @@ func refreshToken(ctx *gin.Context) {
 	err = tokAuth.CompareRefresh(req.RefreshToken, token)
 	if err != nil {
 		errStatus(ctx, http.StatusUnauthorized, err)
+		return
+	}
+
+	err = tokens.InvalidateToken(context.TODO(), tokenId)
+	if err != nil {
+		errStatus(ctx, http.StatusInternalServerError, err)
 		return
 	}
 

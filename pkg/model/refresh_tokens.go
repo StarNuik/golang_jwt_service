@@ -14,11 +14,11 @@ type RefreshTokens struct {
 }
 
 type RefreshToken struct {
-	Id          uuid.UUID
-	UserId      uuid.UUID
-	Hash        string
-	ExpiresAt   time.Time
-	Deactivated bool
+	Id        uuid.UUID
+	UserId    uuid.UUID
+	Hash      string
+	ExpiresAt time.Time
+	Active    bool
 }
 
 func NewRefreshTokens(db *pgxpool.Pool) *RefreshTokens {
@@ -30,10 +30,10 @@ func NewRefreshTokens(db *pgxpool.Pool) *RefreshTokens {
 func (m *RefreshTokens) InsertToken(ctx context.Context, token RefreshToken) error {
 	tag, err := m.db.Exec(ctx, `
 		INSERT INTO RefreshTokens
-			(Id, UserId, Hash, ExpiresAt, Deactivated)
+			(Id, UserId, Hash, ExpiresAt, Active)
 		VALUES
 			($1, $2, $3, $4, $5)`,
-		token.Id, token.UserId, token.Hash, token.ExpiresAt, token.Deactivated)
+		token.Id, token.UserId, token.Hash, token.ExpiresAt, token.Active)
 
 	if err != nil {
 		return err
@@ -54,12 +54,12 @@ func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenId uuid.UUID) (*
 	}
 
 	row := m.db.QueryRow(ctx, `
-		SELECT UserId, Hash, ExpiresAt, Deactivated
+		SELECT UserId, Hash, ExpiresAt, Active
 		FROM RefreshTokens
 		WHERE Id = $1`,
 		tokenId)
 
-	err := row.Scan(&out.UserId, &out.Hash, &out.ExpiresAt, &out.Deactivated)
+	err := row.Scan(&out.UserId, &out.Hash, &out.ExpiresAt, &out.Active)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (m *RefreshTokens) RetrieveToken(ctx context.Context, tokenId uuid.UUID) (*
 func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenId uuid.UUID) error {
 	tag, err := m.db.Exec(ctx, `
 		UPDATE RefreshTokens
-		SET Deactivated = false
+		SET Active = false
 		WHERE Id = $1`,
 		tokenId)
 	if err != nil {
@@ -81,6 +81,21 @@ func (m *RefreshTokens) InvalidateToken(ctx context.Context, tokenId uuid.UUID) 
 	}
 	if tag.RowsAffected() != 1 {
 		return fmt.Errorf("refresh_tokens: updated %d rows", tag.RowsAffected())
+	}
+	return nil
+}
+
+func (m *RefreshTokens) InvalidateOrphanTokens(ctx context.Context, userId uuid.UUID) error {
+	tag, err := m.db.Exec(ctx, `
+		UPDATE RefreshTokens
+		SET Active = false
+		WHERE UserId = $1`,
+		userId)
+	if err != nil {
+		return err
+	}
+	if !tag.Update() {
+		return fmt.Errorf("refresh_tokens: %s instead of UPDATE", tag.String())
 	}
 	return nil
 }

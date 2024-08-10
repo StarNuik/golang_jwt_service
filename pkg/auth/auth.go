@@ -19,8 +19,7 @@ const (
 )
 
 type tokenAuthority struct {
-	accessKey, refreshKey []byte
-	// todo: move durations up into main
+	accessKey, refreshKey           []byte
 	accessDuration, refreshDuration time.Duration
 	audience                        []string
 }
@@ -32,7 +31,7 @@ func NewTokenAuthority(accessKey string, refreshKey string) *tokenAuthority {
 		accessKey:       []byte(accessKey),
 		refreshKey:      []byte(refreshKey),
 		accessDuration:  5 * time.Second,
-		refreshDuration: 60 * time.Minute,
+		refreshDuration: 30 * time.Second,
 	}
 }
 
@@ -95,11 +94,11 @@ func (ta *tokenAuthority) newRefreshRow(refreshId uuid.UUID, userId uuid.UUID, r
 	}
 
 	return &model.RefreshToken{
-		Id:          refreshId,
-		Hash:        hash,
-		UserId:      userId,
-		ExpiresAt:   now().Add(ta.refreshDuration),
-		Deactivated: false,
+		Id:        refreshId,
+		Hash:      hash,
+		UserId:    userId,
+		ExpiresAt: now().Add(ta.refreshDuration),
+		Active:    true,
 	}, nil
 }
 
@@ -186,7 +185,7 @@ func unpackClaims(key []byte, packed string, audience string) (*tokenClaims, err
 }
 
 func (ta *tokenAuthority) CompareRefresh(client string, server *model.RefreshToken) error {
-	if server.Deactivated {
+	if !server.Active {
 		return fmt.Errorf("auth: the token is out of rotation")
 	}
 	if server.ExpiresAt.Before(now()) {

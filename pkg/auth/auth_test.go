@@ -60,11 +60,11 @@ func TestRefreshRoundtrip(t *testing.T) {
 	err = tokens.CompareRefresh(refresh, wantToken)
 	require.Nil(err)
 
-	wantToken.Deactivated = true
+	wantToken.Active = false
 	err = tokens.CompareRefresh(refresh, wantToken)
 	require.NotNil(err)
 
-	wantToken.Deactivated = false
+	wantToken.Active = true
 	wantToken.ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
 	err = tokens.CompareRefresh(refresh, wantToken)
 	require.NotNil(err)

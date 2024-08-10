@@ -56,6 +56,8 @@ do
         printf "access:\n"
         jq -R 'split(".") | .[1] | @base64d | fromjson' <<< $access
         printf "refresh: %s\n" $refresh
+
+        sleep 1
     fi
 done
 
