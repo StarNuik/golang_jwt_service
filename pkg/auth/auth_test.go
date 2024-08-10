@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func TestAccessRoundtrip(t *testing.T) {
 	tokens := auth.NewTokenAuthority(key, "",
 		auth.WithAudience("aud-1", "aud-2"))
 
-	pair, err := tokens.NewPair(wantId)
+	pair, err := tokens.NewPair(wantId, netip.Addr{})
 	require.Nil(err)
 
 	// received an access token
@@ -41,10 +42,11 @@ func TestRefreshRoundtrip(t *testing.T) {
 
 	key := "bacon-pancakes"
 	userId, _ := uuid.FromString("12345678-1234-1234-1234-123456789abc")
+	userAddr := netip.AddrFrom4([4]byte{12, 34, 56, 78})
 
 	tokens := auth.NewTokenAuthority("", key)
 
-	pair, err := tokens.NewPair(userId)
+	pair, err := tokens.NewPair(userId, userAddr)
 	require.Nil(err)
 
 	wantToken := &pair.RefreshRow
@@ -53,9 +55,10 @@ func TestRefreshRoundtrip(t *testing.T) {
 	// received a refresh token
 	refresh := pair.Response.RefreshToken
 
-	haveId, err := tokens.ParseRefresh(refresh)
+	payload, err := tokens.ParseRefresh(refresh)
 	require.Nil(err)
-	require.Equal(wantId, haveId)
+	require.Equal(wantId, payload.TokenId)
+	require.Equal(userAddr, payload.UserAddress)
 
 	err = tokens.CompareRefresh(refresh, wantToken)
 	require.Nil(err)

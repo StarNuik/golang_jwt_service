@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
@@ -71,19 +72,34 @@ type TokenPair struct {
 	RefreshRow model.RefreshToken
 }
 
-type tokenClaims struct {
+// type tokenClaims struct {
+// 	jwt.RegisteredClaims
+// 	UserId  uuid.UUID `json:"sui,omitempty"`
+// 	TokenId uuid.UUID `json:"tki,omitempty"`
+// }
+
+type accessTokenClaims struct {
 	jwt.RegisteredClaims
-	UserId  uuid.UUID `json:"sui,omitempty"`
-	TokenId uuid.UUID `json:"tki,omitempty"`
+	UserId uuid.UUID `json:"sui"`
 }
 
-func (ta *TokenAuthority) NewPair(userId uuid.UUID) (*TokenPair, error) {
+type refreshTokenClaims struct {
+	jwt.RegisteredClaims
+	refreshPayload
+}
+
+type refreshPayload struct {
+	TokenId     uuid.UUID  `json:"tki"`
+	UserAddress netip.Addr `json:"adr"`
+}
+
+func (ta *TokenAuthority) NewPair(userId uuid.UUID, userAddress netip.Addr) (*TokenPair, error) {
 	refreshId, err := uuid.NewV4()
 	if err != nil {
 		return nil, err
 	}
 
-	refresh, err := ta.newRefresh(refreshId, userId)
+	refresh, err := ta.newRefresh(refreshId, userAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +140,7 @@ func (ta *TokenAuthority) newRefreshRow(refreshId uuid.UUID, userId uuid.UUID, r
 }
 
 func (ta *TokenAuthority) newAccess(userId uuid.UUID) (string, error) {
-	return packClaims(ta.accessKey, tokenClaims{
+	return packClaims(ta.accessKey, accessTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    jwtIssuer,
 			Audience:  ta.audience,
@@ -135,16 +151,18 @@ func (ta *TokenAuthority) newAccess(userId uuid.UUID) (string, error) {
 	})
 }
 
-func (ta *TokenAuthority) newRefresh(refreshId uuid.UUID, userId uuid.UUID) (string, error) {
-	return packClaims(ta.refreshKey, tokenClaims{
+func (ta *TokenAuthority) newRefresh(refreshId uuid.UUID, userAddress netip.Addr) (string, error) {
+	return packClaims(ta.refreshKey, refreshTokenClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    jwtIssuer,
 			Audience:  []string{refreshAudience},
 			ExpiresAt: jwt.NewNumericDate(now().Add(ta.refreshDuration)),
 			IssuedAt:  jwt.NewNumericDate(now()),
 		},
-		UserId:  userId,
-		TokenId: refreshId,
+		refreshPayload: refreshPayload{
+			TokenId:     refreshId,
+			UserAddress: userAddress,
+		},
 	})
 }
 
@@ -173,7 +191,8 @@ func hashRefresh(refresh string) (string, error) {
 }
 
 func (ta *TokenAuthority) ParseAccess(token string, audience string) (uuid.UUID, error) {
-	claims, err := unpackClaims(ta.accessKey, token, audience)
+	claims := accessTokenClaims{}
+	err := unpackClaims(ta.accessKey, token, audience, &claims)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -182,27 +201,27 @@ func (ta *TokenAuthority) ParseAccess(token string, audience string) (uuid.UUID,
 	return userId, err
 }
 
-func (ta *TokenAuthority) ParseRefresh(token string) (uuid.UUID, error) {
-	claims, err := unpackClaims(ta.refreshKey, token, refreshAudience)
+func (ta *TokenAuthority) ParseRefresh(token string) (*refreshPayload, error) {
+	claims := refreshTokenClaims{}
+	err := unpackClaims(ta.refreshKey, token, refreshAudience, &claims)
 	if err != nil {
-		return uuid.Nil, err
+		return nil, err
 	}
 
-	return claims.TokenId, nil
+	return &claims.refreshPayload, nil
 }
 
-func unpackClaims(key []byte, packed string, audience string) (*tokenClaims, error) {
-	out := tokenClaims{}
+func unpackClaims(key []byte, packed string, audience string, into jwt.Claims) error {
 	keyFunc := func(*jwt.Token) (interface{}, error) { return key, nil }
-	token, err := jwt.ParseWithClaims(packed, &out, keyFunc, jwt.WithValidMethods([]string{"HS512"}),
+	token, err := jwt.ParseWithClaims(packed, into, keyFunc, jwt.WithValidMethods([]string{"HS512"}),
 		jwt.WithIssuer(jwtIssuer),
 		jwt.WithAudience(audience),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt())
 	if err != nil || !token.Valid {
-		return nil, fmt.Errorf("auth: jwt is invalid, %w", err)
+		return fmt.Errorf("auth: jwt is invalid, %w", err)
 	}
-	return &out, nil
+	return nil
 }
 
 func (ta *TokenAuthority) CompareRefresh(client string, server *model.RefreshToken) error {
@@ -216,41 +235,3 @@ func (ta *TokenAuthority) CompareRefresh(client string, server *model.RefreshTok
 	err := bcrypt.CompareHashAndPassword([]byte(server.Hash), prehash)
 	return err
 }
-
-// func (ta *tokenAuthority) CompareRefreshHashes(refresh string, hash string) error {
-// 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(refresh))
-// }
-
-// type RefreshToken struct {
-// }
-
-// func (ta *tokenAuthority) RefreshToken(userId uuid.UUID) (string, error) {
-// 	claims := jwt.RegisteredClaims{
-// 		Issuer:    jwtIssuer,
-// 		Audience:  []string{refreshAudience},
-// 		Subject:   userId.String(),
-// 		ExpiresAt: jwt.NewNumericDate(now().Add(ta.refreshDuration)),
-// 		IssuedAt:  jwt.NewNumericDate(now()),
-// 	}
-
-// 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
-// 	signed, err := token.SignedString(ta.refreshKey)
-
-// 	return signed, err
-// }
-
-// func (ta *tokenAuthority) ValidRefresh(token string, userId uuid.UUID) error {
-// 	keyFunc := func(*jwt.Token) (interface{}, error) { return ta.refreshKey, nil }
-
-// 	jwt, err := jwt.Parse(token, keyFunc,
-// 		jwt.WithValidMethods([]string{"HS512"}),
-// 		jwt.WithIssuer(jwtIssuer),
-// 		jwt.WithAudience(refreshAudience),
-// 		jwt.WithSubject(userId.String()),
-// 		jwt.WithIssuedAt())
-
-// 	if err != nil || !jwt.Valid {
-// 		return fmt.Errorf("auth: jwt is invalid, %w", err)
-// 	}
-// 	return nil
-// }

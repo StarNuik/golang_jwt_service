@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -59,7 +60,7 @@ func login(ctx *gin.Context) {
 }
 
 func returnNewPair(ctx *gin.Context, user uuid.UUID) {
-	pair, err := tokAuth.NewPair(user)
+	pair, err := tokAuth.NewPair(user, netip.Addr{})
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
@@ -87,13 +88,13 @@ func refreshToken(ctx *gin.Context) {
 		return
 	}
 
-	tokenId, err := tokAuth.ParseRefresh(req.RefreshToken)
+	payload, err := tokAuth.ParseRefresh(req.RefreshToken)
 	if err != nil {
 		errStatus(ctx, http.StatusBadRequest, err)
 		return
 	}
 
-	token, err := tokens.RetrieveToken(context.TODO(), tokenId)
+	token, err := tokens.RetrieveToken(context.TODO(), payload.TokenId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
@@ -105,7 +106,7 @@ func refreshToken(ctx *gin.Context) {
 		return
 	}
 
-	err = tokens.InvalidateToken(context.TODO(), tokenId)
+	err = tokens.InvalidateToken(context.TODO(), payload.TokenId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
@@ -130,19 +131,6 @@ func verifyToken(ctx *gin.Context) {
 	}
 
 	ctx.Status(http.StatusOK)
-}
-
-// https://stackoverflow.com/a/55738279
-// this is as reliable as it gets
-func ReadUserIP(r *http.Request) string {
-	IPAddress := r.Header.Get("X-Real-Ip")
-	if IPAddress == "" {
-		IPAddress = r.Header.Get("X-Forwarded-For")
-	}
-	if IPAddress == "" {
-		IPAddress = r.RemoteAddr
-	}
-	return IPAddress
 }
 
 func printIp(ctx *gin.Context) {
