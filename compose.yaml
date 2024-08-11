@@ -35,6 +35,11 @@ services:
     environment:
       PGM_MIGRATIONS: /migrations
       PGM_DATABASE: ${PG_URL}
+  smtp:
+    image: rnwood/smtp4dev
+    ports:
+      - 8080:80
+      - "2525:25"
 
 #   service-jwt:
 #     image:

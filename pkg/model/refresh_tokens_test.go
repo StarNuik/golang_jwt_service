@@ -16,6 +16,7 @@ import (
 )
 
 // these tests require a deployed postgres instance
+var pgUrl = os.Getenv("TESTING_PG_URL")
 
 func token() model.RefreshToken {
 	tokenId, _ := uuid.NewV4()
@@ -35,7 +36,7 @@ func token() model.RefreshToken {
 func setup(t *testing.T) (*model.RefreshTokens, func()) {
 	require := require.New(t)
 
-	db, err := pgxpool.New(context.Background(), os.Getenv("TESTING_PG_URL"))
+	db, err := pgxpool.New(context.Background(), pgUrl)
 	require.Nil(err)
 
 	err = db.Ping(context.Background())

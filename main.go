@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"net/netip"
@@ -15,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/auth"
+	"github.com/starnuik/golang_jwt_service/pkg/email"
 	"github.com/starnuik/golang_jwt_service/pkg/model"
 	"github.com/starnuik/golang_jwt_service/pkg/schema"
 )
@@ -23,6 +23,7 @@ var (
 	tokAuth *auth.TokenAuthority
 	tokens  *model.RefreshTokens
 	users   *model.Users
+	mail    *email.Sender
 )
 
 func errStatus(ctx *gin.Context, status int, err error) {
@@ -32,7 +33,7 @@ func errStatus(ctx *gin.Context, status int, err error) {
 
 // https://stackoverflow.com/a/55738279
 // this is as reliable as it gets
-func readUserAddress(r *http.Request) (netip.Addr, error) {
+func readUserAddress(r *http.Request) netip.Addr {
 	addr := r.Header.Get("X-Real-Ip")
 	if addr == "" {
 		addr = r.Header.Get("X-Forwarded-For")
@@ -46,7 +47,13 @@ func readUserAddress(r *http.Request) (netip.Addr, error) {
 		addr = addr[:portIdx]
 	}
 
-	return netip.ParseAddr(addr)
+	out, err := netip.ParseAddr(addr)
+	if err != nil {
+		out = netip.AddrFrom4([4]byte{0, 0, 0, 0})
+		log.Println("main: could not parse ip:", err)
+	}
+
+	return out
 }
 
 func login(ctx *gin.Context) {
@@ -80,12 +87,7 @@ func login(ctx *gin.Context) {
 }
 
 func returnNewPair(ctx *gin.Context, user uuid.UUID) {
-	addr, err := readUserAddress(ctx.Request)
-	if err != nil {
-		log.Println("main: could not parse ip:", err)
-		addr = netip.AddrFrom4([4]byte{0, 0, 0, 0})
-	}
-
+	addr := readUserAddress(ctx.Request)
 	pair, err := tokAuth.NewPair(user, addr)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
@@ -120,17 +122,17 @@ func refreshToken(ctx *gin.Context) {
 		return
 	}
 
-	//todo: ip verification
-	addr, err := readUserAddress(ctx.Request)
-	if err != nil {
-		addr = netip.AddrFrom4([4]byte{0, 0, 0, 0})
-	}
-	fmt.Println("want ip:", payload.UserAddress, ", have ip:", addr)
-
 	token, err := tokens.Retrieve(context.TODO(), payload.TokenId)
 	if err != nil {
 		errStatus(ctx, http.StatusInternalServerError, err)
 		return
+	}
+
+	//todo: ip verification
+	addr := readUserAddress(ctx.Request)
+	err = notifyIfAddressChanged(context.TODO(), token.UserId, payload.UserAddress, addr)
+	if err != nil {
+		log.Printf("main: could not send an address change email: %v\n", err)
 	}
 
 	// todo: invalidate all tokens on a stolen refresh token
@@ -147,6 +149,20 @@ func refreshToken(ctx *gin.Context) {
 	}
 
 	returnNewPair(ctx, token.UserId)
+}
+
+func notifyIfAddressChanged(ctx context.Context, userId uuid.UUID, lastAddr netip.Addr, requestAddr netip.Addr) error {
+	if lastAddr == requestAddr {
+		return nil
+	}
+
+	user, err := users.GetUser(ctx, userId)
+	if err != nil {
+		return err
+	}
+
+	err = mail.AddressChanged(user, lastAddr, requestAddr)
+	return err
 }
 
 func verifyToken(ctx *gin.Context) {
@@ -167,20 +183,17 @@ func verifyToken(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
-func printIp(ctx *gin.Context) {
-	fmt.Println(ctx.Request.Header.Get("X-Real-Ip"))
-	fmt.Println(ctx.Request.Header.Get("X-Forwarded-For"))
-	fmt.Println(ctx.Request.RemoteAddr)
-	ctx.Status(http.StatusOK)
-}
-
 func main() {
 	accessKey := os.Getenv("ACCESS_TOKEN_KEY")
 	refreshKey := os.Getenv("REFRESH_TOKEN_KEY")
 	dbUrl := os.Getenv("PG_URL")
+	smtpUrl := os.Getenv("SMTP_URL")
+	smtpHostname := os.Getenv("SMTP_HOSTNAME")
 
 	tokAuth = auth.NewTokenAuthority(accessKey, refreshKey,
 		auth.WithAudience("jwt_service/api/verify_token"))
+
+	mail = email.NewSender(smtpUrl, smtpHostname)
 
 	pool, err := pgxpool.New(context.Background(), dbUrl)
 	if err != nil {
@@ -200,7 +213,6 @@ func main() {
 	r.POST("/api/auth/login", login)
 	r.POST("/api/auth/refresh", refreshToken)
 	r.POST("/api/verify_token", verifyToken)
-	r.GET("/api/ip", printIp)
 
 	r.Run()
 }
