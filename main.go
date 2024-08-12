@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid/v5"
@@ -128,15 +131,21 @@ func refreshToken(ctx *gin.Context) {
 		return
 	}
 
-	//todo: ip verification
 	addr := readUserAddress(ctx.Request)
-	err = notifyIfAddressChanged(context.TODO(), token.UserId, payload.UserAddress, addr)
-	if err != nil {
-		log.Printf("main: could not send an address change email: %v\n", err)
-	}
+	notifyIfAddressChanged(token.UserId, payload.UserAddress, addr)
 
-	// todo: invalidate all tokens on a stolen refresh token
 	err = tokAuth.CompareRefresh(req.RefreshToken, token)
+	if errors.Is(err, auth.ErrTokenReused) {
+		errStatus(ctx, http.StatusUnauthorized, err)
+
+		err = tokens.InvalidateAll(context.Background(), token.UserId)
+		if err != nil {
+			log.Printf("main: could not invalidate tokens after a token reuse: %v\n", err)
+		}
+
+		notifyTokenStolen(token.UserId)
+		return
+	}
 	if err != nil {
 		errStatus(ctx, http.StatusUnauthorized, err)
 		return
@@ -151,18 +160,27 @@ func refreshToken(ctx *gin.Context) {
 	returnNewPair(ctx, token.UserId)
 }
 
-func notifyIfAddressChanged(ctx context.Context, userId uuid.UUID, lastAddr netip.Addr, requestAddr netip.Addr) error {
+func notifyTokenStolen(userId uuid.UUID) {}
+
+func notifyIfAddressChanged(userId uuid.UUID, lastAddr netip.Addr, requestAddr netip.Addr) {
 	if lastAddr == requestAddr {
-		return nil
+		return
 	}
 
-	user, err := users.GetUser(ctx, userId)
-	if err != nil {
-		return err
-	}
+	// 700ms -> 170ms fix (on my testing setup)
+	go func() {
+		user, err := users.GetUser(context.TODO(), userId)
+		if err != nil {
+			log.Printf("main: could not send an address change email: %v\n", err)
+			return
+		}
 
-	err = mail.AddressChanged(user, lastAddr, requestAddr)
-	return err
+		err = mail.AddressChanged(user, lastAddr, requestAddr)
+		if err != nil {
+			log.Printf("main: could not send an address change email: %v\n", err)
+			return
+		}
+	}()
 }
 
 func verifyToken(ctx *gin.Context) {
@@ -183,16 +201,34 @@ func verifyToken(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
-func main() {
+func setupTokens() {
 	accessKey := os.Getenv("ACCESS_TOKEN_KEY")
 	refreshKey := os.Getenv("REFRESH_TOKEN_KEY")
-	dbUrl := os.Getenv("PG_URL")
-	smtpUrl := os.Getenv("SMTP_URL")
+
+	var withAccessDuration, withRefreshDuration auth.BuilderOption
+	accessSeconds, err := strconv.Atoi(os.Getenv("ACCESS_TOKEN_SECONDS"))
+	if err == nil {
+		dur := time.Second * time.Duration(accessSeconds)
+		withAccessDuration = auth.WithAccessTokenDuration(dur)
+	}
+	refreshMinutes, err := strconv.Atoi(os.Getenv("REFRESH_TOKEN_SECONDS"))
+	if err == nil {
+		dur := time.Second * time.Duration(refreshMinutes)
+		withRefreshDuration = auth.WithRefreshTokenDuration(dur)
+	}
 
 	tokAuth = auth.NewTokenAuthority(accessKey, refreshKey,
-		auth.WithAudience("jwt_service/api/verify_token"))
+		auth.WithAudience("jwt_service/api/verify_token"),
+		withAccessDuration, withRefreshDuration)
+}
 
+func setupMail() {
+	smtpUrl := os.Getenv("SMTP_URL")
 	mail = email.NewSender(smtpUrl)
+}
+
+func setupModels() func() {
+	dbUrl := os.Getenv("PG_URL")
 
 	pool, err := pgxpool.New(context.Background(), dbUrl)
 	if err != nil {
@@ -206,6 +242,16 @@ func main() {
 
 	tokens = model.NewRefreshTokens(pool)
 	users = model.NewUsers(pool)
+
+	return pool.Close
+}
+
+func main() {
+	closeDb := setupModels()
+	defer closeDb()
+
+	setupMail()
+	setupTokens()
 
 	r := gin.Default()
 

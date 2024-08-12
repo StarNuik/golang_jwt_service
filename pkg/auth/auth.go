@@ -51,12 +51,14 @@ func NewTokenAuthority(accessKey string, refreshKey string, options ...BuilderOp
 	out := TokenAuthority{
 		accessKey:       []byte(accessKey),
 		refreshKey:      []byte(refreshKey),
-		accessDuration:  5 * time.Second,
-		refreshDuration: 30 * time.Second,
+		accessDuration:  5 * time.Minute,
+		refreshDuration: 60 * time.Minute,
 		audience:        nil,
 	}
 	for _, opt := range options {
-		opt(&out)
+		if opt != nil {
+			opt(&out)
+		}
 	}
 	return &out
 }
@@ -224,14 +226,25 @@ func unpackClaims(key []byte, packed string, audience string, into jwt.Claims) e
 	return nil
 }
 
-func (ta *TokenAuthority) CompareRefresh(client string, server *model.RefreshToken) error {
-	if !server.Active {
-		return fmt.Errorf("auth: the token is out of rotation")
+var ErrTokenReused = fmt.Errorf("auth: out of rotation token reused")
+
+func (ta *TokenAuthority) CompareRefresh(clientRefresh string, storedRefresh *model.RefreshToken) error {
+	// outdated token: no worries
+	if storedRefresh.ExpiresAt.Before(now()) {
+		return fmt.Errorf("auth: token has expired")
 	}
-	if server.ExpiresAt.Before(now()) {
-		return fmt.Errorf("auth: the token has expired")
+
+	// the token has been tampered with (token.Id matches, but the body doesn't): there is a possibility of an attack, but the user hasn't been compromised yet
+	prehash := prehashRefresh(clientRefresh)
+	err := bcrypt.CompareHashAndPassword([]byte(storedRefresh.Hash), prehash)
+	if err != nil {
+		return err
 	}
-	prehash := prehashRefresh(client)
-	err := bcrypt.CompareHashAndPassword([]byte(server.Hash), prehash)
-	return err
+
+	// token matches, but was already used: the user may have been compromised
+	if !storedRefresh.Active {
+		return ErrTokenReused
+	}
+
+	return nil
 }

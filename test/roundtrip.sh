@@ -1,6 +1,7 @@
 #! /bin/bash
 
 print_tokens() {
+    # https://gist.github.com/angelo-v/e0208a18d455e2e6ea3c40ad637aac53?permalink_comment_id=3150988#gistcomment-3150988
     printf "access:\n"
     jq -R 'split(".") | .[1] | @base64d | fromjson' <<< $access
     printf "refresh:\n" $refresh
@@ -27,7 +28,6 @@ fi
 
 access=$(cat $tmp | jq .AccessToken)
 refresh=$(cat $tmp | jq .RefreshToken)
-#? https://gist.github.com/angelo-v/e0208a18d455e2e6ea3c40ad637aac53?permalink_comment_id=3150988#gistcomment-3150988
 print_tokens
 
 for ((;;))
@@ -60,10 +60,7 @@ do
 
         access=$(cat $tmp | jq .AccessToken)
         refresh=$(cat $tmp | jq .RefreshToken)
-        #? https://gist.github.com/angelo-v/e0208a18d455e2e6ea3c40ad637aac53?permalink_comment_id=3150988#gistcomment-3150988
-        printf "access:\n"
-        jq -R 'split(".") | .[1] | @base64d | fromjson' <<< $access
-        printf "refresh: %s\n" $refresh
+        print_tokens
 
         sleep 1
     fi

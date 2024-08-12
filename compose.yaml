@@ -51,8 +51,6 @@ services:
     - internal
     ports:
     - 8000:8080
+    env_file: ".env"
     environment:
       PG_URL: ${PG_URL}
-      SMTP_URL: ${SMTP_URL}
-      ACCESS_TOKEN_KEY: ${ACCESS_TOKEN_KEY}
-      REFRESH_TOKEN_KEY: ${REFRESH_TOKEN_KEY}
