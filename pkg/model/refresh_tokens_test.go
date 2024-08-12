@@ -4,19 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/model"
 	"github.com/stretchr/testify/require"
 )
 
 // these tests require a deployed postgres instance
-var pgUrl = os.Getenv("TESTING_PG_URL")
+var pgUrl = "postgres://pg:insecure@localhost:5432/dev"
 
 func token() model.RefreshToken {
 	tokenId, _ := uuid.NewV4()

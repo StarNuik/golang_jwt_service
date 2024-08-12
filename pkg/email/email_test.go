@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"os"
 	"testing"
 
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/email"
 	"github.com/starnuik/golang_jwt_service/pkg/model"
 	"github.com/stretchr/testify/require"
@@ -16,14 +14,14 @@ import (
 
 // these tests require a deployed smtp (rnwood/smtp4dev) instance
 var (
-	smtpHostname = os.Getenv("TESTING_SMTP_HOSTNAME")
-	smtpUrl      = os.Getenv("TESTING_SMTP_URL")
-	smtpWeb      = os.Getenv("TESTING_SMTP_WEB")
+	smtpHostname = "localhost"
+	smtpUrl      = smtpHostname + ":2525"
+	smtpWeb      = "http://" + smtpHostname + ":8001"
 )
 
 // A sanity check.
 // This test will fail if the testing server is down / env variables are not set correctly.
-func TestSmtpConnection(t *testing.T) {
+func TestSmtpServer(t *testing.T) {
 	require := require.New(t)
 
 	url := fmt.Sprintf("%s/api/Version", smtpWeb)
@@ -44,7 +42,7 @@ func TestSmtpConnection(t *testing.T) {
 
 func TestMailSender(t *testing.T) {
 	require := require.New(t)
-	mail := email.NewSender(smtpUrl, smtpHostname)
+	mail := email.NewSender(smtpUrl)
 
 	user := &model.User{
 		Name:  "Mock Human",

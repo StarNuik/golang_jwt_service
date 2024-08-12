@@ -188,12 +188,11 @@ func main() {
 	refreshKey := os.Getenv("REFRESH_TOKEN_KEY")
 	dbUrl := os.Getenv("PG_URL")
 	smtpUrl := os.Getenv("SMTP_URL")
-	smtpHostname := os.Getenv("SMTP_HOSTNAME")
 
 	tokAuth = auth.NewTokenAuthority(accessKey, refreshKey,
 		auth.WithAudience("jwt_service/api/verify_token"))
 
-	mail = email.NewSender(smtpUrl, smtpHostname)
+	mail = email.NewSender(smtpUrl)
 
 	pool, err := pgxpool.New(context.Background(), dbUrl)
 	if err != nil {

@@ -6,13 +6,11 @@ networks:
 services:
   postgres:
     image: postgres:latest
-    # todo: remove the "host  network"-ed port
+    restart: unless-stopped
     ports:
-      - 5432:5432
+    - 5432:5432
     networks:
     - internal
-    # volumes:
-    #   - vol-postgres:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${PG_USER}
       POSTGRES_PASSWORD: ${PG_PASSWORD}
@@ -37,10 +35,24 @@ services:
       PGM_DATABASE: ${PG_URL}
   smtp:
     image: rnwood/smtp4dev
+    restart: unless-stopped
+    networks:
+    - internal
     ports:
-      - 8080:80
-      - "2525:25"
-
-#   service-jwt:
-#     image:
-#       build: .
+    - 8001:80
+    - "2525:25"
+  service-jwt:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+    - internal
+    ports:
+    - 8000:8080
+    environment:
+      PG_URL: ${PG_URL}
+      SMTP_URL: ${SMTP_URL}
+      ACCESS_TOKEN_KEY: ${ACCESS_TOKEN_KEY}
+      REFRESH_TOKEN_KEY: ${REFRESH_TOKEN_KEY}

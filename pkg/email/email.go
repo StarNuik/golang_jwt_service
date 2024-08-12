@@ -3,26 +3,23 @@ package email
 import (
 	"fmt"
 	"net/netip"
-	"net/smtp"
 
 	"github.com/jordan-wright/email"
 	"github.com/starnuik/golang_jwt_service/pkg/model"
 )
 
 type Sender struct {
-	smtpUrl      string
-	smtpHostname string
+	smtpUrl string
 }
 
-func NewSender(smtpUrl string, smtpHostname string) *Sender {
+func NewSender(smtpUrl string) *Sender {
 	return &Sender{
-		smtpUrl:      smtpUrl,
-		smtpHostname: smtpHostname,
+		smtpUrl: smtpUrl,
 	}
 }
 
 func (s *Sender) send(e email.Email) error {
-	return e.Send(s.smtpUrl, smtp.PlainAuth("", "", "", s.smtpHostname))
+	return e.Send(s.smtpUrl, nil)
 }
 
 func (s *Sender) AddressChanged(user *model.User, lastAddr netip.Addr, newAddr netip.Addr) error {
