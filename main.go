@@ -13,7 +13,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid/v5"
-	_ "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/auth"
@@ -160,7 +159,21 @@ func refreshToken(ctx *gin.Context) {
 	returnNewPair(ctx, token.UserId)
 }
 
-func notifyTokenStolen(userId uuid.UUID) {}
+func notifyTokenStolen(userId uuid.UUID) {
+	go func() {
+		user, err := users.GetUser(context.TODO(), userId)
+		if err != nil {
+			log.Printf("main: could not send a token reuse email: %v\n", err)
+			return
+		}
+
+		err = mail.TokenStolen(user)
+		if err != nil {
+			log.Printf("main: could not send a token reuse email: %v\n", err)
+			return
+		}
+	}()
+}
 
 func notifyIfAddressChanged(userId uuid.UUID, lastAddr netip.Addr, requestAddr netip.Addr) {
 	if lastAddr == requestAddr {
