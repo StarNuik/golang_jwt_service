@@ -41,7 +41,7 @@ services:
     ports:
     - 8001:80
     - "2525:25"
-  service-jwt:
+  jwt-service:
     build: .
     restart: unless-stopped
     depends_on:
