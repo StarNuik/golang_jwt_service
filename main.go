@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/joho/godotenv/autoload"
 	"github.com/starnuik/golang_jwt_service/pkg/auth"
 	"github.com/starnuik/golang_jwt_service/pkg/email"
 	"github.com/starnuik/golang_jwt_service/pkg/model"
@@ -34,7 +33,6 @@ func errStatus(ctx *gin.Context, status int, err error) {
 }
 
 // https://stackoverflow.com/a/55738279
-// this is as reliable as it gets
 func readUserAddress(r *http.Request) netip.Addr {
 	addr := r.Header.Get("X-Real-Ip")
 	if addr == "" {
@@ -102,13 +100,10 @@ func returnNewPair(ctx *gin.Context, user uuid.UUID) {
 		return
 	}
 
-	// todo: "MUST include the HTTP "Cache-Control" response header field [RFC2616] with a value of "no-store" in any response containing tokens, credentials, or other sensitive information..."
-	// todo: (MUST include) "the "Pragma" response header field [RFC2616] with a value of "no-cache"."
 	ctx.IndentedJSON(http.StatusOK, pair.Response)
 }
 
-// ? https://stackoverflow.com/a/67386228
-// ? https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation
+// https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation
 func refreshToken(ctx *gin.Context) {
 	var req schema.RefreshTokenRequest
 

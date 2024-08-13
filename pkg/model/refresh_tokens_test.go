@@ -45,7 +45,6 @@ func setup(t *testing.T) (*model.RefreshTokens, func()) {
 	return tokens, func() { db.Close() }
 }
 
-// these tests require a deployed postgres instance
 func TestRefreshTokenRoundtrip(t *testing.T) {
 	require := require.New(t)
 
@@ -61,7 +60,6 @@ func TestRefreshTokenRoundtrip(t *testing.T) {
 	require.Equal(want, *have)
 }
 
-// these tests require a deployed postgres instance
 func TestInvalidateToken(t *testing.T) {
 	require := require.New(t)
 
@@ -80,7 +78,6 @@ func TestInvalidateToken(t *testing.T) {
 	require.Equal(false, have.Active)
 }
 
-// these tests require a deployed postgres instance
 func TestInvalidateOrphans(t *testing.T) {
 	require := require.New(t)
 

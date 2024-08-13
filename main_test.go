@@ -21,7 +21,6 @@ var (
 	jwtServiceUrl = "http://localhost:8000"
 	pgUrl         = "postgres://pg:insecure@localhost:5432/dev"
 	smtpHostname  = "localhost"
-	smtpUrl       = smtpHostname + ":2525"
 	smtpWeb       = "http://" + smtpHostname + ":8001"
 )
 
@@ -194,7 +193,7 @@ func smtpLastSeen() string {
 }
 
 func smtpCountNew(lastSeen string) int {
-	// mail sending doesn't block the response, so we need to wait a bit
+	// mail sending doesn't block the response, so we need to wait a little bit
 	time.Sleep(500 * time.Millisecond)
 
 	url := fmt.Sprintf("%s/api/Messages/new?pageSize=100&lastSeenMessageId=%s", smtpWeb, lastSeen)

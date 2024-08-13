@@ -64,7 +64,7 @@ func NewTokenAuthority(accessKey string, refreshKey string, options ...BuilderOp
 }
 
 // jwt.NewNumericDate should use UTC under the hood. This is added as an additional peace of mind.
-// See: https://datatracker.ietf.org/doc/html/rfc7519#section-2
+// See NumericDate @ https://datatracker.ietf.org/doc/html/rfc7519#section-2
 func now() time.Time {
 	return time.Now().UTC()
 }
@@ -73,12 +73,6 @@ type TokenPair struct {
 	Response   schema.TokenPairResponse
 	RefreshRow model.RefreshToken
 }
-
-// type tokenClaims struct {
-// 	jwt.RegisteredClaims
-// 	UserId  uuid.UUID `json:"sui,omitempty"`
-// 	TokenId uuid.UUID `json:"tki,omitempty"`
-// }
 
 type accessTokenClaims struct {
 	jwt.RegisteredClaims

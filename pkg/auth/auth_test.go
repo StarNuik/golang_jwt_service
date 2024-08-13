@@ -21,7 +21,7 @@ func TestAccessRoundtrip(t *testing.T) {
 	pair, err := tokens.NewPair(wantId, netip.Addr{})
 	require.Nil(err)
 
-	// received an access token
+	// http.Post(access)
 	access := pair.Response.AccessToken
 
 	haveId, err := tokens.ParseAccess(access, "aud-1")
@@ -50,7 +50,7 @@ func TestRefreshRoundtrip(t *testing.T) {
 	wantToken := &pair.RefreshRow
 	wantId := pair.RefreshRow.Id
 
-	// received a refresh token
+	// http.Post(refresh)
 	refresh := pair.Response.RefreshToken
 
 	payload, err := tokens.ParseRefresh(refresh)
